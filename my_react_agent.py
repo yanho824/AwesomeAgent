@@ -41,8 +41,7 @@ class MyReActAgent(ReActAgent):
         max_steps: int = 5,
         custom_prompt: Optional[str] = None
     ):
-        super().__init__(name, llm, system_prompt, config)
-        self.tool_registry = tool_registry
+        super().__init__(name, llm, tool_registry, system_prompt, config)  
         self.max_steps = max_steps
         self.custom_prompt = custom_prompt if custom_prompt else MY_REACT_PROMPT
         self.current_history: List[str] = []
@@ -54,17 +53,17 @@ class MyReActAgent(ReActAgent):
         current_step = 0
         
         while current_step < self.max_steps:
-            tools_decription = self.tool_registry.get_tools_description
+            tools_description = self.tool_registry.get_tools_description()
             history_str = "\n".join(self.current_history)
             # 1. 构建提示词
             prompt = self.custom_prompt.format(
-                tools=tools_decription,
+                tools=tools_description,
                 question=input_text,
                 history=history_str
             )
 
             # 2. 调用LLM
-            messages = {"role": "system", "content": prompt}
+            messages = [{"role": "user", "content": prompt}]
             response = self.llm.invoke(
                 messages=messages,
                 **kwargs
@@ -72,9 +71,13 @@ class MyReActAgent(ReActAgent):
 
             # 3. 解析输出
             thought, action = self._parse_output(response)
+            if thought:
+                self.current_history.append(f"Thought: {thought}")
+            
+            current_step += 1
 
             # 4. 检查完成度
-            if action and action.startswtih("Finish"):
+            if action and action.startswith("Finish"):
                 final_answer = self._parse_action_input(action)
                 self.add_message(Message(input_text, "user"))
                 self.add_message(Message(final_answer, "assistant"))
@@ -83,9 +86,10 @@ class MyReActAgent(ReActAgent):
             # 5. 执行工具调用
             if action:
                 tool_name, tool_input = self._parse_action(action)
-                observation = self.tool_registry.execute_tool(tool_name, tool_input)
-                self.current_history.append(f"Action: {action}")
-                self.current_history.append(f"Observation: {observation}")
+                if tool_name and tool_input:
+                    observation = self.tool_registry.execute_tool(tool_name, tool_input)
+                    self.current_history.append(f"Action: {action}")
+                    self.current_history.append(f"Observation: {observation}")
 
         # 6. 达到最大步数
         final_answer = "抱歉，我无法在限定步数内完成这个任务。"
